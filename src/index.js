@@ -1,46 +1,42 @@
 import net from 'net';
-import util from 'util';
-import events from 'events';
+import { EventEmitter } from 'events';
 
-function JsonSocket(...args) {
-  const socket = this;
-  let connection = null;
-  let json = '';
+class JsonSocket extends EventEmitter {
+  constructor(...args) {
+    super();
 
-  if (args[0] instanceof net.Socket) {
-    connection = args[0];
-  } else {
-    connection = net.connect(...args);
+    this.json = '';
+    this.connection = (args[0] instanceof net.Socket) ? args[0] : net.connect(...args);
+    this.handleData = this.handleData.bind(this);
+
+    this.connection.on('data', this.handleData);
+    this.connection.on('connect', () => this.emit('connect'));
+    this.connection.on('close', () => this.emit('close'));
+    this.connection.on('end', () => this.emit('disconnect'));
+    this.connection.on('error', e => this.emit('error', e));
   }
 
-  socket.connection = connection;
-
-  connection.on('data', data => {
-    const str = data.toString();
-    const parts = str.split('\0');
-    json += parts.shift();
+  handleData(data) {
+    const parts = data.toString().split('\0');
+    this.json += parts.shift();
 
     while (parts.length > 0) {
-      socket.emit('json', JSON.parse(json));
-      json = parts.shift();
+      this.emit('json', JSON.parse(this.json));
+      this.json = parts.shift();
     }
-  });
+  }
 
-  connection.on('connect', () => socket.emit('connect'));
+  write(data) {
+    this.connection.write(`${JSON.stringify(data)}\0`);
+  }
 
-  connection.on('close', () => socket.emit('close'));
+  disconnect() {
+    this.connection.destroy();
+  }
 
-  connection.on('end', () => socket.emit('disconnect'));
-
-  connection.on('error', e => socket.emit('error', e));
-
-  socket.write = data => connection.write(`${JSON.stringify(data)}\0`);
-
-  socket.disconnect = () => connection.destroy();
-
-  socket.connect = (...connectionArgs) => connection.connect(...connectionArgs);
+  connect(...connectionArgs) {
+    this.connection.connect(...connectionArgs);
+  }
 }
-
-util.inherits(JsonSocket, events.EventEmitter);
 
 export default JsonSocket;
